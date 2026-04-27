@@ -32,6 +32,9 @@ from extractor import extract_code
 from executor import execute
 from logger import AgentLogger
 
+from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.history import InMemoryHistory
+
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.panel import Panel
@@ -202,37 +205,34 @@ BANNER = """[bold cyan]
 [/bold cyan]
 [dim]  DeepSeek Python Agent  ·  model: {model}  ·  {url}[/dim]
 [dim]  log: {log}[/dim]
-[dim]  Enter 换行，空行提交。Ctrl+C / "exit" 退出。[/dim]
+[dim]  Enter 发送，↑↓ 翻历史。Ctrl+C 取消输入，Ctrl+D / "exit" 退出。[/dim]
 """
 
 
-def read_task() -> str:
-    """Collect multiline input. Empty line submits; supports paste of multiline error output."""
-    lines: list[str] = []
-    while True:
-        try:
-            line = input()
-        except EOFError:
-            raise KeyboardInterrupt
-        if line == "" and lines:   # blank line after content → submit
-            break
-        if line == "" and not lines:  # blank line with nothing yet → ignore
-            continue
-        lines.append(line)
-    return "\n".join(lines).strip()
+def _read_input(history: InMemoryHistory) -> str:
+    try:
+        return pt_prompt("> ", history=history)
+    except Exception as e:
+        if "NoConsoleScreenBufferError" in type(e).__name__ or "xterm" in str(e).lower():
+            return input("> ")
+        raise
 
 
 def repl(client: OpenAI, model: str, args: argparse.Namespace, messages: list[dict], log: AgentLogger) -> None:
     console.print(BANNER.format(model=model, url=config.BASE_URL, log=log.path))
+    history = InMemoryHistory()
     while True:
-        console.print("[prompt]>[/prompt] ", end="")
         try:
-            task = read_task()
+            task = _read_input(history).strip()
         except KeyboardInterrupt:
+            continue          # Ctrl+C cancels current input, show prompt again
+        except EOFError:
             console.print("\n[dim]Bye.[/dim]")
             log.session_end()
             sys.exit(0)
 
+        if not task:
+            continue
         if task.lower() in {"exit", "quit", "q"}:
             console.print("[dim]Bye.[/dim]")
             log.session_end()
